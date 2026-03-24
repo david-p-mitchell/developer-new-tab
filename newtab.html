@@ -1,44 +1,49 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Dashboard</title>
+  <title>Reformed Dev Dashboard</title>
   <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
 
 <div class="container">
 
+  <!-- CLOCK -->
   <div class="clock" id="clock"></div>
 
-  <input id="search" placeholder="Search the web..." autofocus />
+  <!-- SEARCH BAR -->
+  <div class="search-wrapper">
+    <input id="search" placeholder="Search the web..." autofocus />
+  </div>
 
+  <!-- QUICK LINKS -->
   <div class="links">
-
     <div class="group">
       <h3>Development</h3>
-      <a href="https://github.com">GitHub</a>
-      <a href="https://stackoverflow.com">Stack Overflow</a>
+      <a href="https://github.com" target="_blank">GitHub</a>
+      <a href="https://stackoverflow.com" target="_blank">Stack Overflow</a>
     </div>
-
     <div class="group">
       <h3>Work</h3>
-      <a href="https://gmail.com">Email</a>
-      <a href="https://calendar.google.com">Calendar</a>
+      <a href="https://gmail.com" target="_blank">Email</a>
+      <a href="https://calendar.google.com" target="_blank">Calendar</a>
     </div>
-
     <div class="group">
       <h3>General</h3>
-      <a href="https://news.ycombinator.com">Hacker News</a>
-      <a href="https://bbc.co.uk">BBC</a>
+      <a href="https://news.ycombinator.com" target="_blank">Hacker News</a>
+      <a href="https://bbc.co.uk" target="_blank">BBC</a>
     </div>
+  </div>
 
+  <!-- DASHBOARD FEEDS -->
+  <div class="dashboard">
+    <h2>Christian Feeds</h2>
+    <div id="all-feeds" class="card-grid"></div>
   </div>
 
 </div>
 
 <script src="script.js"></script>
-
 </body>
 </html>
