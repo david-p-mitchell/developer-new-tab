@@ -105,22 +105,53 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   // NORMALIZE POSTS
   // -------------------------
-  function normalizePost(item, sourceName) {
-  let img = item.thumbnail || ""
-  const html = item.description || item.content || ""
-  if (!img) {
-    const match = html.match(/<img.*?src="(.*?)"/i)
-    if (match) img = match[1]
-  }
-  if (!img && item.enclosure && item.enclosure.link) img = item.enclosure.link
+  function normalizePost(item, sourceName, sourceDays) {
+  let img = "";
+  if(sourceName == "Media Gratiae")
+    console.log(item);
+  // 1. Try direct thumbnail
+  if (item.thumbnail) img = item.thumbnail;
 
-  // Special handling for Evangelical Times
-  
-  let extraInfo = ""
+  // 2. Try media:thumbnail
+  if (!img && item.media && item.media.thumbnail) img = item.media.thumbnail;
+  if (!img && item["media:thumbnail"] && item["media:thumbnail"].url) img = item["media:thumbnail"].url;
+
+  // 3. Try <img> tag in description/content
+  const html = item.description || item.content || "";
+  if (!img) {
+    const match = html.match(/<img[^>]+>/i);
+    if (match) {
+      const imgTag = match[0];
+
+      // Prefer data-image attribute if present
+      const dataImageMatch = imgTag.match(/data-image=["'](.*?)["']/i);
+      if (dataImageMatch) {
+        img = dataImageMatch[1];
+      } else {
+        // Fallback to src
+        const srcMatch = imgTag.match(/src=["'](.*?)["']/i);
+        if (srcMatch) img = srcMatch[1];
+      }
+    }
+  }
+
+  // 4. Try enclosure link
+  if (!img && item.enclosure && item.enclosure.link) img = item.enclosure.link;
+
+  // 5. Try media:content (some feeds)
+  if (!img && item["media:content"] && item["media:content"].url) img = item["media:content"].url;
+
+  // 6. Ensure it's an image (not mp3)
+  if (img && !img.match(/\.(jpeg|jpg|gif|png|webp|bmp|svg)/i)) {
+    img = ""; // Not an image
+  }
+
   const categories = item.categories ? (Array.isArray(item.categories) ? item.categories : [item.categories]) : []
-  
+  const itemTitle = item.title.includes(":") && item.title.length > 100
+  ? item.title.slice(0, item.title.indexOf(":")) 
+  : item.title;
   return {
-    title: item.title || "Untitled",
+    title: itemTitle || "Untitled",
     link: item.link,
     pubDate: item.pubDate || item.isoDate || new Date().toISOString(),
     description: html,
@@ -128,7 +159,8 @@ document.addEventListener("DOMContentLoaded", () => {
     source: sourceName,
     author: item.author,
     type: categories.length ? categories[0] : "",
-    extraInfo // for ET category + creator
+    sourceDays,
+    extraInfo: ""
   }
 }
 
@@ -151,19 +183,31 @@ document.addEventListener("DOMContentLoaded", () => {
   function limitChalliesALaCarte(posts) {
     let kept = 0
     return posts.filter(post => {
-      if (
-        post.source === "Challies" &&
-        post.title &&
-        post.title.toLowerCase().includes("a la carte")
-      ) {
+      if (limitPost(post, "Challies", "a la carte")) {
         if (kept === 0 && Math.random() < 0.5) {
           kept++
           return true
         }
         return false
       }
+      if(limitPost(post, "Media Gratiae", "","The Whole Counsel")) {
+        return false
+      }
       return true
     })
+  }
+
+  function limitPost(post, source, title) {
+    return post.source === source &&
+        post.title &&
+        post.title.toLowerCase().includes(title)
+  }
+
+  function limitPost(post, source, title, type) {
+    return post.source === source &&
+        post.title &&
+        post.title.toLowerCase().includes(title) &&
+        post.type && post.type== type
   }
 
   // -------------------------
@@ -180,7 +224,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // -------------------------
-  // RANK POSTS
+  // RANK POSTS (UPDATED TO USE sourceDays)
   // -------------------------
   function rankPosts(posts) {
     const seen = new Set(getSeenPosts())
@@ -188,16 +232,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const removed = getRemovedCards()
     const now = Date.now()
     return posts
-      .filter(post => !removed.has(post.link)) // remove hidden cards
+      .filter(post => !removed.has(post.link))
       .map(post => {
         const ageHours = (now - new Date(post.pubDate)) / (1000 * 60 * 60)
-        const within3Days = ageHours <= 72
+        const withinSourceDays = ageHours <= post.sourceDays * 24
         const isSeen = seen.has(post.link)
         const isClicked = clicked.has(post.link)
         let score = 0
-        if (within3Days) score += 3
+        if (withinSourceDays) score += 3
         if (!isSeen) score += 2
-        score += Math.max(0, 1 - ageHours / 168)
+        score += Math.max(0, 1 - ageHours / (post.sourceDays * 24))
         if (
           post.source === "Challies" &&
           post.title.toLowerCase().includes("a la carte")
@@ -213,14 +257,14 @@ document.addEventListener("DOMContentLoaded", () => {
   // -------------------------
   // FETCH FEED
   // -------------------------
-  async function loadFeed(url, sourceName) {
+  async function loadFeed(url, sourceName, days) {
     try {
       const api = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(url)}`
       const res = await fetch(api)
       if (!res.ok) throw new Error()
       const data = await res.json()
       if (!data.items) throw new Error()
-      return data.items.slice(0, 15).map(item => normalizePost(item, sourceName))
+      return data.items.slice(0, 15).map(item => normalizePost(item, sourceName, days))
     } catch {
       console.warn(`Feed failed: ${url}, skipping.`)
       return []
@@ -235,24 +279,36 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!container) return
     container.innerHTML = "<p>Loading feeds...</p>"
 
-    const feedSources = [
-      { url: "https://www.challies.com/feed/", name: "Challies" },
-      { url: "https://www.thegospelcoalition.org/feed/", name: "TGC" },
-      { url: "https://www.evangelical-times.org/rss/", name: "ET" },
-      { url: "https://www.crossway.org/articles/rss/", name: "Crossway" },
-      { url: "https://www.christian.org.uk/news/england-wales/rssfeed/", name: "CI" }
-    ]
+    const feedSources =  [
+      { url: "https://www.challies.com/feed/", name: "Challies", days: 3 },
+      { url: "https://www.thegospelcoalition.org/feed/", name: "TGC", days: 3 },
+      { url: "https://www.evangelical-times.org/rss/", name: "ET", days: 5 },
+      { url: "https://www.crossway.org/articles/rss/", name: "Crossway", days: 3 },
+      { url: "https://www.christian.org.uk/news/england-wales/rssfeed/", name: "CI", days: 7 },
+      { url: "https://www.mediagratiae.org/blog?format=rss", name: "Media Gratiae", days: 14 },
+      { url: "https://www.ligonier.org/rss.xml", name: "Ligonier", days: 2}
+    ];
 
     try {
       const allItemsArrays = await Promise.all(
-        feedSources.map(f => loadFeed(f.url, f.name))
+        feedSources.map(f => loadFeed(f.url, f.name, f.days))
       )
+      const flatArr = allItemsArrays.flat()
+
+      // FILTER POSTS BY SOURCE-SPECIFIC DAYS
+      const now = new Date()
+      const recentItems = flatArr.filter(post => {
+        const postDate = new Date(post.pubDate)
+        const cutoff = new Date()
+        cutoff.setDate(now.getDate() - post.sourceDays)
+        return postDate >= cutoff
+      })
 
       const allItems =
         limitPerSource(
           rankPosts(
             limitChalliesALaCarte(
-              removeDuplicates(allItemsArrays.flat())
+              removeDuplicates(recentItems)
             )
           )
         ).slice(0, 9)
@@ -266,13 +322,13 @@ document.addEventListener("DOMContentLoaded", () => {
           const match = post.description.match(/<img.*?src="(.*?)"/)
           if (match && match[1]) imgSrc = match[1]
         }
+        console.log(post)
 
         const card = document.createElement("div")
         card.className = "card"
         card.style.position = "relative" // allow absolute button
-        console.log(post.extraInfo, "Hi")
-        const date = new Date(post.pubDate);
-        const ukDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(date);
+        const date = new Date(post.pubDate)
+        const ukDate = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: '2-digit', month: 'short' }).format(date)
 
         card.innerHTML = `
           <button class="remove-btn">&times;</button>
@@ -282,7 +338,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <p class="source">${post.source}${post.type ? " - " + post.type : ""}</p>
             <p>${post.author ? post.author + " - " : ""}${ukDate}</p>
           </a>
-        `;
+        `
 
         // Track clicks for priority adjustment
         card.querySelector("a").addEventListener("click", () => {

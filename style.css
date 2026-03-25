@@ -22,7 +22,7 @@ body {
 .search-wrapper {
   position: relative;
   max-width: 600px;
-  margin: 0 auto 32px auto;
+  margin: 0 auto 15px auto;
 }
 
 #search {
